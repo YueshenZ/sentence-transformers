@@ -18,17 +18,19 @@ def model() -> MultiVectorEncoder:
     return MultiVectorEncoder("sentence-transformers-testing/stsb-bert-tiny-safetensors", device="cpu")
 
 
-def test_multi_process_matches_single_process(model: MultiVectorEncoder) -> None:
+@pytest.mark.parametrize("save_to_cpu", [False, True])
+def test_multi_process_matches_single_process(model: MultiVectorEncoder, save_to_cpu: bool) -> None:
     direct = model.encode_document(TEXTS)
-    pooled = model.encode_document(TEXTS, device=["cpu", "cpu"])
+    pooled = model.encode_document(TEXTS, device=["cpu", "cpu"], save_to_cpu=save_to_cpu)
     assert len(pooled) == len(direct)
     for direct_emb, pooled_emb in zip(direct, pooled):
         assert torch.allclose(direct_emb, pooled_emb, atol=1e-5)
 
 
-def test_multi_process_output_value_none(model: MultiVectorEncoder) -> None:
+@pytest.mark.parametrize("save_to_cpu", [False, True])
+def test_multi_process_output_value_none(model: MultiVectorEncoder, save_to_cpu: bool) -> None:
     direct = model.encode_document(TEXTS, output_value=None)
-    pooled = model.encode_document(TEXTS, output_value=None, device=["cpu", "cpu"])
+    pooled = model.encode_document(TEXTS, output_value=None, device=["cpu", "cpu"], save_to_cpu=save_to_cpu)
     assert len(pooled) == len(direct)
     for direct_item, pooled_item in zip(direct, pooled):
         assert sorted(direct_item.keys()) == sorted(pooled_item.keys())

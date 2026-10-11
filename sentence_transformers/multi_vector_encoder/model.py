@@ -25,7 +25,7 @@ from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling,
 from sentence_transformers.util import batch_to_device, load_file_path
 from sentence_transformers.util.misc import import_from_string
 from sentence_transformers.util.similarity import SimilarityFunction
-from sentence_transformers.util.tensor import _tensor_to_numpy
+from sentence_transformers.util.tensor import _move_tensors_to_cpu, _tensor_to_numpy
 
 logger = transformers_logging.get_logger(__name__)
 
@@ -234,6 +234,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> Tensor: ...
 
@@ -253,6 +254,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> np.ndarray: ...
 
@@ -272,6 +274,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> dict[str, Tensor]: ...
 
@@ -290,6 +293,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[Tensor]: ...
 
@@ -309,6 +313,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[np.ndarray]: ...
 
@@ -328,6 +333,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[dict[str, Tensor]]: ...
 
@@ -347,6 +353,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]: ...
 
@@ -364,6 +371,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
         token_pooling: BaseTokenPooling | None = None,
+        save_to_cpu: bool = False,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
         """Compute query embeddings. Uses the "query" prompt if available and routes through the query side.
@@ -392,6 +400,7 @@ class MultiVectorEncoder(BaseModel):
             chunk_size=chunk_size,
             token_pooling=token_pooling,
             task="query",
+            save_to_cpu=save_to_cpu,
             **kwargs,
         )
 
@@ -410,6 +419,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> Tensor: ...
 
@@ -429,6 +439,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> np.ndarray: ...
 
@@ -448,6 +459,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> dict[str, Tensor]: ...
 
@@ -466,6 +478,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[Tensor]: ...
 
@@ -485,6 +498,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[np.ndarray]: ...
 
@@ -504,6 +518,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[dict[str, Tensor]]: ...
 
@@ -523,6 +538,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = ...,
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]: ...
 
@@ -540,6 +556,7 @@ class MultiVectorEncoder(BaseModel):
         pool: dict[Literal["input", "output", "processes"], Any] | None = None,
         chunk_size: int | None = None,
         token_pooling: BaseTokenPooling | None = None,
+        save_to_cpu: bool = False,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
         """Compute document embeddings. Uses the first available of ``"document"`` / ``"passage"`` / ``"corpus"``
@@ -572,6 +589,7 @@ class MultiVectorEncoder(BaseModel):
             chunk_size=chunk_size,
             token_pooling=token_pooling,
             task="document",
+            save_to_cpu=save_to_cpu,
             **kwargs,
         )
 
@@ -591,6 +609,7 @@ class MultiVectorEncoder(BaseModel):
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> Tensor: ...
 
@@ -611,6 +630,7 @@ class MultiVectorEncoder(BaseModel):
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> np.ndarray: ...
 
@@ -631,6 +651,7 @@ class MultiVectorEncoder(BaseModel):
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> dict[str, Tensor]: ...
 
@@ -650,6 +671,7 @@ class MultiVectorEncoder(BaseModel):
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[Tensor]: ...
 
@@ -670,6 +692,7 @@ class MultiVectorEncoder(BaseModel):
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[np.ndarray]: ...
 
@@ -690,6 +713,7 @@ class MultiVectorEncoder(BaseModel):
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[dict[str, Tensor]]: ...
 
@@ -710,6 +734,7 @@ class MultiVectorEncoder(BaseModel):
         chunk_size: int | None = ...,
         token_pooling: BaseTokenPooling | None = ...,
         task: str | None = ...,
+        save_to_cpu: bool = ...,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]: ...
 
@@ -728,6 +753,7 @@ class MultiVectorEncoder(BaseModel):
         chunk_size: int | None = None,
         token_pooling: BaseTokenPooling | None = None,
         task: str | None = None,
+        save_to_cpu: bool = False,
         **kwargs: Any,
     ) -> list[Tensor] | list[np.ndarray] | Tensor | np.ndarray | list[dict[str, Tensor]] | dict[str, Tensor]:
         """Compute multi-vector token-level embeddings.
@@ -755,7 +781,7 @@ class MultiVectorEncoder(BaseModel):
             convert_to_numpy (bool, optional): If True, returns a list of :class:`numpy.ndarray` and moves
                 each batch to the CPU as it is encoded. Defaults to False, so embeddings stay on
                 ``device``: scoring them with :meth:`similarity` then needs no transfer, which is worth
-                multiples on an accelerator. Set it for corpora too large to keep in device memory.
+                multiples on an accelerator. For CPU tensors instead of arrays, use ``save_to_cpu=True``.
                 Multi-process encoding (a ``pool``, or a list of ``device``s) always returns on the CPU,
                 since embeddings are moved there to cross the process boundary.
             device (str, torch.device, list, or None): Device(s) for computation. A single device moves the
@@ -775,10 +801,18 @@ class MultiVectorEncoder(BaseModel):
                 (``token_embeddings`` and ``attention_mask`` are rewritten). Defaults to None.
             task (str, optional): One of ``"query"``, ``"document"``. Sets the prefix / length /
                 masking strategy.
+            save_to_cpu (bool, optional): Move each encoded batch to the CPU before accumulating results,
+                without changing the tensor dtype or converting to numpy. Useful for corpora too large to
+                keep in device memory, including bfloat16 embeddings. Also moves tensors in raw feature
+                dicts when ``output_value=None``. Pooling and normalization are applied before moving
+                the results to the CPU.
+                ``convert_to_numpy=True`` and multi-process encoding always return CPU outputs regardless
+                of this option. Defaults to False.
 
         Returns:
             list[Tensor] | list[ndarray] | Tensor | ndarray: By default, a list of per-input 2D tensors of
-            shape ``(num_tokens_i, embedding_dim)`` (variable-length) on ``device``, or numpy arrays with
+            shape ``(num_tokens_i, embedding_dim)`` (variable-length) on ``device`` (CPU when
+            ``save_to_cpu=True``), or numpy arrays with
             ``convert_to_numpy=True``. With ``output_value=None``, a list of per-input feature dicts
             (including each input's real ``attention_mask``). If a single string is passed, the outer list
             is unwrapped (e.g. a bare 2D tensor for the default).
@@ -828,7 +862,7 @@ class MultiVectorEncoder(BaseModel):
             batch_size=batch_size,
             show_progress_bar=show_progress_bar,
             output_value=output_value,
-            save_to_cpu=convert_to_numpy,
+            save_to_cpu=save_to_cpu or convert_to_numpy,
             normalize_embeddings=normalize_embeddings,
             token_pooling=token_pooling,
             task=task,
@@ -897,6 +931,8 @@ class MultiVectorEncoder(BaseModel):
                                 "want the model's built-in pooling."
                             )
                         features = token_pooling(features, task=task)
+                    if save_to_cpu:
+                        features = _move_tensors_to_cpu(dict(features))
                     # Raw per-input module outputs, unsliced. Batch-first tensors are split per
                     # input, other values (ints, strings, flattened tensors) are carried as-is.
                     for idx in range(len(inputs_batch)):

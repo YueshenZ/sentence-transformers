@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import tempfile
+from copy import deepcopy
 
 import numpy as np
 import pytest
@@ -731,6 +732,96 @@ def test_encode_defaults_to_tensors_on_model_device(model: MultiVectorEncoder) -
     embeddings = model.encode_document(["one doc", "another doc"])
     assert all(isinstance(emb, torch.Tensor) and emb.device == model.device for emb in embeddings)
     assert all(isinstance(emb, np.ndarray) for emb in model.encode_document(["a", "b"], convert_to_numpy=True))
+
+
+@pytest.mark.parametrize("method", ["encode", "encode_query", "encode_document"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@skip_bfloat16_cpu_crash
+def test_encode_save_to_cpu_preserves_tensors(model: MultiVectorEncoder, method: str, dtype: torch.dtype) -> None:
+    encoder = deepcopy(model).to(dtype=dtype)
+    encode = getattr(encoder, method)
+    texts = ["short", "a considerably longer document", "medium length input"]
+    expected = encode(texts, batch_size=2)
+    actual = encode(texts, batch_size=2, save_to_cpu=True)
+    assert len(actual) == len(expected) == len(texts)
+    for reference, embedding in zip(expected, actual):
+        assert embedding.device.type == "cpu"
+        assert embedding.dtype == dtype
+        torch.testing.assert_close(embedding, reference.cpu())
+    single = encode(texts[0], save_to_cpu=True)
+    assert isinstance(single, torch.Tensor) and single.dtype == dtype
+    torch.testing.assert_close(single, expected[0].cpu())
+
+
+@pytest.mark.parametrize("save_to_cpu", [False, True])
+def test_encode_save_to_cpu_with_numpy(model: MultiVectorEncoder, save_to_cpu: bool) -> None:
+    expected = model.encode_document(["short", "a longer document"])
+    actual = model.encode_document(["short", "a longer document"], save_to_cpu=save_to_cpu, convert_to_numpy=True)
+    for reference, embedding in zip(expected, actual):
+        assert isinstance(embedding, np.ndarray)
+        np.testing.assert_allclose(embedding, reference.cpu().numpy(), atol=1e-6)
+
+
+def test_encode_save_to_cpu_with_raw_outputs_and_pooling(model: MultiVectorEncoder) -> None:
+    kwargs = dict(
+        output_value=None,
+        token_pooling=HierarchicalTokenPooling(pool_factor=2),
+        batch_size=1,
+    )
+    texts = ["short", "a considerably longer document"]
+    expected = model.encode_document(texts, **kwargs)
+    actual = model.encode_document(texts, save_to_cpu=True, **kwargs)
+    for reference, features in zip(expected, actual):
+        assert features.keys() == reference.keys()
+        for name, value in features.items():
+            if isinstance(value, torch.Tensor):
+                assert value.device.type == "cpu"
+                torch.testing.assert_close(value, reference[name].cpu())
+            else:
+                assert value == reference[name]
+
+
+def test_encode_save_to_cpu_moves_each_batch(model: MultiVectorEncoder, monkeypatch: pytest.MonkeyPatch) -> None:
+    events = []
+    original_cpu = torch.Tensor.cpu
+
+    def record_cpu(tensor, *args, **kwargs):
+        events.append("cpu")
+        return original_cpu(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "cpu", record_cpu)
+    handle = model.register_forward_pre_hook(lambda *_: events.append("forward"))
+    try:
+        model.encode_document(["short", "a longer document", "medium length"], batch_size=2, save_to_cpu=True)
+    finally:
+        handle.remove()
+    assert events == ["forward", "cpu", "cpu", "forward", "cpu"]
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")),
+        pytest.param(
+            "mps", marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS is not available")
+        ),
+    ],
+)
+@pytest.mark.parametrize("output_value", ["token_embeddings", None])
+def test_encode_save_to_cpu_from_accelerator(model: MultiVectorEncoder, output_value: str | None, device: str) -> None:
+    encoder = deepcopy(model).to(device)
+    expected = encoder.encode_document(["short", "a longer document"], batch_size=1, output_value=output_value)
+    actual = encoder.encode_document(
+        ["short", "a longer document"], batch_size=1, output_value=output_value, save_to_cpu=True
+    )
+    assert encoder.device.type == device
+    for reference, item in zip(expected, actual):
+        pairs = [(reference, item)] if output_value else [(reference[name], value) for name, value in item.items()]
+        for source, target in pairs:
+            if isinstance(target, torch.Tensor):
+                assert source.device.type == device
+                assert target.device.type == "cpu"
+                torch.testing.assert_close(target, source.cpu())
 
 
 def test_convert_to_tensor_is_rejected_by_name(model: MultiVectorEncoder) -> None:
