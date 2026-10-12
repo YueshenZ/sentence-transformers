@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import bisect
 from collections.abc import Iterable, Iterator
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from functools import partial
 from typing import Any
 
@@ -27,14 +27,24 @@ import tqdm
 from packaging.version import Version
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel
-from torch.utils.checkpoint import get_device_states, set_device_states
+from torch.utils.checkpoint import _get_autocast_kwargs, get_device_states, set_device_states
 
 
 class RandContext:
-    """Snapshot the CPU/CUDA/MPS RNG at init and restore it on enter, so the cached second forward
-    replays the first's randomness (e.g. dropout). Ref: https://github.com/luyug/GradCache."""
+    """Snapshot RNG and autocast state so the cached second forward reproduces the first.
+
+    Ref: https://github.com/luyug/GradCache.
+    """
 
     def __init__(self, *tensors) -> None:
+        self.autocast_kwargs = {}
+        for device_type in {"cpu", *(t.device.type for t in tensors if isinstance(t, Tensor))}:
+            # Use checkpoint's compatibility helper: the autocast query APIs differ across
+            # supported PyTorch versions, and not every backend supports autocast.
+            device_kwargs, cpu_kwargs = _get_autocast_kwargs(device_type)
+            self.autocast_kwargs["cpu"] = cpu_kwargs
+            if device_type != "cpu" and device_kwargs is not None:
+                self.autocast_kwargs[device_type] = device_kwargs
         self.fwd_cpu_state = torch.get_rng_state()
         # get_device_states() calls the nonexistent torch.mps.device() on MPS tensors, so snapshot the
         # MPS RNG separately and filter MPS tensors out before calling it (restored in __enter__).
@@ -47,8 +57,10 @@ class RandContext:
         self.fwd_gpu_devices, self.fwd_gpu_states = get_device_states(*non_mps_tensors)
 
     def __enter__(self) -> None:
-        self._fork = torch.random.fork_rng(devices=self.fwd_gpu_devices, enabled=True)
-        self._fork.__enter__()
+        self._fork = ExitStack()
+        self._fork.enter_context(torch.random.fork_rng(devices=self.fwd_gpu_devices, enabled=True))
+        for device_type, kwargs in self.autocast_kwargs.items():
+            self._fork.enter_context(torch.autocast(device_type, **kwargs))
         torch.set_rng_state(self.fwd_cpu_state)
         if self.fwd_mps_state is not None:
             # This fork_rng call uses the default device_type="cuda", so save the outer

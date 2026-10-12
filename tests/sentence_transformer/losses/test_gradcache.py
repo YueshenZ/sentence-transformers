@@ -10,12 +10,18 @@ import torch
 from torch import Tensor, nn
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.base.losses.gradcache import CachedLossMixin, _create_minibatch, _minibatch_ranges
+from sentence_transformers.base.losses.gradcache import (
+    CachedLossMixin,
+    RandContext,
+    _create_minibatch,
+    _minibatch_ranges,
+)
 from sentence_transformers.sentence_transformer.losses import (
     AdaptiveLayerLoss,
     CachedMultipleNegativesRankingLoss,
     MultipleNegativesRankingLoss,
 )
+from sentence_transformers.util import batch_to_device
 from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
 from tests.utils import skip_bfloat16_cpu_crash
 
@@ -195,8 +201,7 @@ def test_gradcache_under_no_grad(stsb_bert_tiny_model: SentenceTransformer, trai
 
 @skip_bfloat16_cpu_crash
 def test_gradcache_under_autocast(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    """Under autocast, the cached gradients are reduced-precision while the backward hook's
-    re-embedding runs outside autocast in fp32, so the surrogate must bridge the dtypes.
+    """The backward hook must replay the forward's autocast context even after the caller exits it.
 
     A LayerNorm-final model exits autocast in fp32 and would pass vacuously, so append a Dense
     module: its Linear runs in bf16, making the cached embeddings (and their gradients) bf16.
@@ -220,6 +225,93 @@ def test_gradcache_under_autocast(stsb_bert_tiny_model: SentenceTransformer) -> 
     grads = gradients(model)
     assert_trained(grads)
     assert all(torch.isfinite(grad).all() for grad in grads.values())
+
+
+@skip_bfloat16_cpu_crash
+@pytest.mark.parametrize("autocast_enabled", [False, True])
+def test_gradcache_autocast_gradients(stsb_bert_tiny_model: SentenceTransformer, autocast_enabled: bool) -> None:
+    """A cached AMP step must have the same parameter gradients as the ordinary loss."""
+    from sentence_transformers.sentence_transformer.modules import Dense
+
+    model = stsb_bert_tiny_model.to("cpu")
+    model.append(Dense(model.get_embedding_dimension(), 64, activation_function=nn.Tanh()))
+    disable_dropout(model)
+    model.train()
+    reference_gradients = None
+    reference_loss = None
+    for loss_fn in (
+        MultipleNegativesRankingLoss(model),
+        CachedMultipleNegativesRankingLoss(model, mini_batch_size=4),
+    ):
+        model.zero_grad()
+        # Separate weight casts avoid BF16 gradient-accumulation rounding from sharing a
+        # cached cast between the ordinary loss's two forwards but not GradCache's replays.
+        with torch.autocast("cpu", dtype=torch.bfloat16, enabled=autocast_enabled, cache_enabled=False):
+            loss = loss_fn([model.preprocess(COLUMN_A[:4]), model.preprocess(COLUMN_B[:4])], None)
+        loss.backward()
+        assert_trained(gradients(model))
+        if reference_gradients is None:
+            reference_gradients, reference_loss = gradients(model), loss.detach()
+        else:
+            torch.testing.assert_close(loss, reference_loss, rtol=0, atol=0)
+            for name, grad in gradients(model).items():
+                torch.testing.assert_close(grad, reference_gradients[name], rtol=0, atol=0, msg=name)
+
+
+@skip_bfloat16_cpu_crash
+@pytest.mark.parametrize(
+    "device_type,dtype", [("cpu", torch.bfloat16), ("cuda", torch.float16), ("cuda", torch.bfloat16)]
+)
+def test_gradcache_autocast_dropout_replay(
+    stsb_bert_tiny_model: SentenceTransformer, device_type: str, dtype: torch.dtype
+) -> None:
+    if device_type == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is unavailable")
+    if device_type == "cuda" and dtype == torch.bfloat16 and not torch.cuda.is_bf16_supported():
+        pytest.skip("CUDA bfloat16 is unavailable")
+    from sentence_transformers.sentence_transformer.modules import Dense
+
+    model = stsb_bert_tiny_model.to(device_type)
+    model.append(Dense(model.get_embedding_dimension(), 64, activation_function=nn.Tanh()).to(device_type))
+    model.train()  # Keep dropout active: replay must restore both RNG and autocast.
+    outputs = []
+    handle = model.register_forward_hook(
+        lambda module, inputs, output: outputs.append(output["sentence_embedding"].detach().clone())
+    )
+    try:
+        loss_fn = CachedMultipleNegativesRankingLoss(model, mini_batch_size=2)
+        features = [batch_to_device(model.preprocess(column[:4]), device_type) for column in (COLUMN_A, COLUMN_B)]
+        with torch.autocast(device_type, dtype=dtype, cache_enabled=False):
+            loss = loss_fn(features, None)
+        forward_count = len(outputs)
+        rng_state = torch.get_rng_state().clone()
+        device_rng_state = torch.cuda.get_rng_state().clone() if device_type == "cuda" else None
+        loss.backward()
+        assert len(outputs) == 2 * forward_count
+        for first, replay in zip(outputs[:forward_count], outputs[forward_count:]):
+            torch.testing.assert_close(replay, first, rtol=0, atol=0)
+        assert torch.equal(torch.get_rng_state(), rng_state)
+        if device_rng_state is not None:
+            assert torch.equal(torch.cuda.get_rng_state(), device_rng_state)
+    finally:
+        handle.remove()
+
+
+def test_rand_context_preserves_each_autocast_state_and_restores_after_exception() -> None:
+    from torch.utils.checkpoint import _get_autocast_kwargs
+
+    with torch.autocast("cpu", dtype=torch.bfloat16, cache_enabled=False):
+        enabled = RandContext(torch.ones(1))
+    with torch.autocast("cpu", enabled=False, cache_enabled=True):
+        disabled = RandContext(torch.ones(1))
+    with torch.autocast("cpu", dtype=torch.bfloat16, cache_enabled=True):
+        ambient = _get_autocast_kwargs("cpu")[1]
+        for context, expected_enabled, expected_cache in ((enabled, True, False), (disabled, False, True)):
+            with pytest.raises(RuntimeError, match="replay failed"), context:
+                state = _get_autocast_kwargs("cpu")[1]
+                assert state == {"enabled": expected_enabled, "dtype": torch.bfloat16, "cache_enabled": expected_cache}
+                raise RuntimeError("replay failed")
+            assert _get_autocast_kwargs("cpu")[1] == ambient
 
 
 def test_adaptive_layer_warns_for_gradient_cached_losses(stsb_bert_tiny_model: SentenceTransformer) -> None:
