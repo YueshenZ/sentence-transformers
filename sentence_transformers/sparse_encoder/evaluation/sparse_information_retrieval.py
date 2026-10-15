@@ -241,6 +241,7 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         output_path: str | None = None,
     ) -> dict[str, float]:
         if corpus_embeddings is not None:
+            corpus_embeddings = corpus_embeddings.cpu()
             self._record_sparsity_stats(
                 corpus_model if corpus_model is not None else model, corpus_embeddings, "corpus"
             )
